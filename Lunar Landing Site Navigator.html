@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lunar Landing Site Navigator</title>
+<style>
+:root{--bg:#f4f5f8;--fg:#14171f;--mut:#5b6272;--card:#fff;--bd:#d9dce5;--ac:#2f5bea;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c0f16;--fg:#e8eaf1;--mut:#99a1b3;--card:#151a25;--bd:#272e3d;--ac:#7ea0ff}}
+:root[data-theme="dark"]{--bg:#0c0f16;--fg:#e8eaf1;--mut:#99a1b3;--card:#151a25;--bd:#272e3d;--ac:#7ea0ff}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.w{max-width:1000px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:24px;margin:0 0 4px}h2{font-size:15px;margin:0 0 8px}
+.sub{color:var(--mut);margin:0 0 16px}
+.g{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px}
+@media(max-width:760px){.g{grid-template-columns:1fr}}
+.c{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:16px}
+canvas{width:100%;aspect-ratio:1;border-radius:8px;display:block;cursor:crosshair;background:#000}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.tabs button,.site{font:inherit;border:1px solid var(--bd);background:transparent;color:var(--fg);border-radius:999px;padding:4px 12px;cursor:pointer}
+.tabs button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.site{border-radius:8px;display:block;width:100%;text-align:left;margin-bottom:6px}
+label{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-top:8px}
+input[type=range]{width:100%;accent-color:var(--ac)}
+select{font:inherit;width:100%;padding:6px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--fg)}
+.k{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:13px;margin:8px 0}
+.k b{display:block;font-size:17px}
+.v{padding:8px 10px;border-radius:8px;font-size:13px;margin-top:6px;background:color-mix(in srgb,var(--ac) 12%,transparent)}
+.leg{height:8px;border-radius:4px;margin-top:8px}
+small,.mut{color:var(--mut);font-size:12.5px}
+ul{margin:6px 0 0;padding-left:18px}
+</style>
+</head>
+<body>
+<div class="w">
+<h1>🌙 Lunar Landing Site Navigator</h1>
+<p class="sub">Explainable, multi-hazard landing-site selection for south-polar terrain. Tune mission priorities and watch the safest, most valuable sites change in real time.</p>
+
+<div class="g">
+<div>
+<div class="c">
+<div class="tabs" id="tabs"></div>
+<canvas id="cv" width="512" height="512"></canvas>
+<div class="leg" id="leg"></div>
+<small id="legt"></small>
+<p class="mut" style="margin:8px 0 0">Synthetic 5.1 × 5.1 km demo terrain (40 m/pixel). Click any cell to inspect it. ★ marks the top-ranked sites.</p>
+</div>
+</div>
+<div>
+<div class="c">
+<h2>Mission profile</h2>
+<select id="lander">
+<option value="8,3">Crewed lander – max slope 8°, 120 m ellipse</option>
+<option value="12,2" selected>Cargo lander – max slope 12°, 80 m ellipse</option>
+<option value="15,2">Rover-class – max slope 15°, 80 m ellipse</option>
+</select>
+<label>Sunlight (power) <span id="a1"></span></label><input type="range" id="w1" min="0" max="10" value="7">
+<label>Earth line-of-sight (comms) <span id="a2"></span></label><input type="range" id="w2" min="0" max="10" value="5">
+<label>Water-ice proximity (science) <span id="a3"></span></label><input type="range" id="w3" min="0" max="10" value="6">
+<label>Terrain safety margin <span id="a4"></span></label><input type="range" id="w4" min="0" max="10" value="8">
+</div>
+<div class="c"><h2>Top candidate sites</h2><div id="top"></div></div>
+<div class="c"><h2>Selected cell</h2><div id="info"><span class="mut">Click the map.</span></div></div>
+</div>
+</div>
+
+<div class="c">
+<h2>How it works</h2>
+<ul>
+<li><b>Hazard gate:</b> slope, 5×5 roughness and a full landing-ellipse check must pass before a cell can score at all.</li>
+<li><b>Illumination:</b> horizon ray-marching at a low polar Sun (2° elevation) across 8 azimuths gives the fraction of the lunar day a cell is lit.</li>
+<li><b>Comms:</b> line-of-sight to Earth at a low elevation angle, averaged over ±10° of azimuth libration.</li>
+<li><b>Science:</b> proximity to permanently shadowed regions, the cold traps where water ice can persist.</li>
+<li><b>Explainable ranking:</b> each site shows exactly why it scored as it did, so planners can trust and audit the pick.</li>
+</ul>
+<p class="mut" style="margin:10px 0 0">Real-data path: swap the synthetic grid for LRO LOLA 5 m/px south-pole DEMs and LROC imagery; the same pipeline applies unchanged. Candidate regions follow NASA Artemis south-polar site studies.</p>
+</div>
+</div>
+
+<script>
+(function(){
+var N=128,CS=40,R=function(s){return function(){s|=0;s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}(7);
+var H=new Float32Array(N*N),i,j,k;
+function noise(f,seed){var g=[],m=f+2,r=function(s){return function(){s|=0;s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}(seed);
+for(i=0;i<m*m;i++)g.push(r());
+return function(x,y){var u=x/N*f,v=y/N*f,a=Math.floor(u),b=Math.floor(v),fu=u-a,fv=v-b;fu=fu*fu*(3-2*fu);fv=fv*fv*(3-2*fv);
+var p=g[b*m+a],q=g[b*m+a+1],s=g[(b+1)*m+a],t=g[(b+1)*m+a+1];return(p+(q-p)*fu)*(1-fv)+(s+(t-s)*fu)*fv}}
+var oct=[[4,60,11],[8,25,12],[16,10,13],[32,4,14]].map(function(o){return{n:noise(o[0],o[2]),a:o[1]}});
+var cr=[];for(i=0;i<16;i++)cr.push({x:R()*N,y:R()*N,r:5+R()*R()*22});
+for(j=0;j<N;j++)for(i=0;i<N;i++){var h=0;oct.forEach(function(o){h+=o.n(i,j)*o.a});
+cr.forEach(function(c){var d=Math.hypot(i-c.x,j-c.y)/c.r;if(d<1)h-=0.22*c.r*CS*0.5*(1-d*d);else if(d<1.25)h+=0.03*c.r*CS*(1-(d-1)/0.25)});
+H[j*N+i]=h}
+function at(x,y){x=Math.max(0,Math.min(N-1,x));y=Math.max(0,Math.min(N-1,y));return H[y*N+x]}
+var slope=new Float32Array(N*N),rough=new Float32Array(N*N),shade=new Float32Array(N*N);
+for(j=0;j<N;j++)for(i=0;i<N;i++){var dx=(at(i+1,j)-at(i-1,j))/(2*CS),dy=(at(i,j+1)-at(i,j-1))/(2*CS);
+slope[j*N+i]=Math.atan(Math.hypot(dx,dy))*180/Math.PI;var nl=Math.hypot(dx,dy,1);shade[j*N+i]=Math.max(0,(dx*.5+dy*.5+.7)/nl/1.0)}
+for(j=0;j<N;j++)for(i=0;i<N;i++){var m=0,s2=0,a,b;for(b=-2;b<=2;b++)for(a=-2;a<=2;a++)m+=at(i+a,j+b);m/=25;
+for(b=-2;b<=2;b++)for(a=-2;a<=2;a++){var rr=at(i+a,j+b)-m;s2+=rr*rr}rough[j*N+i]=Math.sqrt(s2/25)}
+var sr=Array.prototype.slice.call(rough).sort(function(a,b){return a-b}),RL=sr[Math.floor(N*N*.9)],RMAX=sr[N*N-1];
+function lit(i,j,az,el){var t=Math.tan(el*Math.PI/180),h0=H[j*N+i],c=Math.cos(az),s=Math.sin(az);
+for(var k=1;k<110;k++){var x=Math.round(i+c*k),y=Math.round(j+s*k);if(x<0||y<0||x>=N||y>=N)return 1;if((H[y*N+x]-h0)/(k*CS)>t)return 0}return 1}
+var sun=new Float32Array(N*N),comm=new Float32Array(N*N),ice=new Float32Array(N*N),psr=new Float32Array(N*N);
+for(j=0;j<N;j++)for(i=0;i<N;i++){var f=0;for(k=0;k<8;k++)f+=lit(i,j,k*Math.PI/4,2);sun[j*N+i]=f/8;
+var e=0;for(k=-1;k<=1;k++)e+=lit(i,j,3.49+k*0.17,5);comm[j*N+i]=e/3;psr[j*N+i]=sun[j*N+i]<0.13?1:0}
+var tmp=new Float32Array(N*N),r=9;
+for(var p=0;p<2;p++){var src=p?tmp:psr,dst=p?ice:tmp;
+for(j=0;j<N;j++)for(i=0;i<N;i++){var a=0,n=0,q;for(q=-r;q<=r;q++){var x=p?i:i+q,y=p?j+q:j;if(x>=0&&y>=0&&x<N&&y<N){a+=src[y*N+x];n++}}dst[j*N+i]=a/n}}
+var imax=0;for(i=0;i<N*N;i++)imax=Math.max(imax,ice[i]);for(i=0;i<N*N;i++)ice[i]=Math.min(1,ice[i]/(imax*.7));
+var cv=document.getElementById('cv'),cx=cv.getContext('2d'),off=document.createElement('canvas');off.width=off.height=N;var ox=off.getContext('2d');
+var layers=[['score','Site score'],['valid','Hazard map'],['slope','Slope'],['rough','Roughness'],['sun','Sunlight'],['comm','Earth comms'],['ice','Ice proximity']],cur='score',sel=null,tops=[],valid,score,safety;
+var tabs=document.getElementById('tabs');
+layers.forEach(function(l){var b=document.createElement('button');b.textContent=l[1];b.onclick=function(){cur=l[0];draw()};b.id='t_'+l[0];tabs.appendChild(b)});
+function lerp(st,t){t=Math.max(0,Math.min(1,t));var n=st.length-1,x=t*n,a=Math.min(n-1,Math.floor(x)),f=x-a;return[0,1,2].map(function(c){return st[a][c]+(st[a+1][c]-st[a][c])*f})}
+var VI=[[68,1,84],[33,145,140],[253,231,37]],RG=[[180,40,40],[230,200,60],[50,180,90]];
+function P(){var v=document.getElementById('lander').value.split(','),ml=+v[0],er=+v[1];return{ml:ml,er:er,w:[1,2,3,4].map(function(n){return +document.getElementById('w'+n).value})}}
+function compute(){var p=P(),sf=new Uint8Array(N*N),a,b;valid=new Uint8Array(N*N);score=new Float32Array(N*N);safety=new Float32Array(N*N);
+for(i=0;i<N*N;i++)sf[i]=slope[i]<=p.ml&&rough[i]<=RL?1:0;
+for(j=0;j<N;j++)for(i=0;i<N;i++){var ok=1;for(b=-p.er;b<=p.er&&ok;b++)for(a=-p.er;a<=p.er;a++){var x=i+a,y=j+b;if(x<0||y<0||x>=N||y>=N||!sf[y*N+x]){ok=0;break}}valid[j*N+i]=ok;
+if(ok){var k2=j*N+i,sa=1-.6*slope[k2]/p.ml-.4*rough[k2]/RL;safety[k2]=sa;var W=p.w,t=W[0]+W[1]+W[2]+W[3]||1;score[k2]=(W[0]*sun[k2]+W[1]*comm[k2]+W[2]*ice[k2]+W[3]*sa)/t}}
+for(k=1;k<=4;k++)document.getElementById('a'+k).textContent=p.w[k-1]+'/10';
+var ids=[];for(i=0;i<N*N;i++)if(valid[i])ids.push(i);ids.sort(function(a,b){return score[b]-score[a]});tops=[];
+for(k=0;k<ids.length&&tops.length<3;k++){var c=ids[k],cx2=c%N,cy2=(c/N)|0;if(tops.every(function(t){return Math.hypot(t%N-cx2,((t/N)|0)-cy2)>14}))tops.push(c)}
+var el=document.getElementById('top');el.innerHTML='';
+if(!tops.length)el.innerHTML='<span class="mut">No cell passes the hazard gate for this lander.</span>';
+tops.forEach(function(c,n){var b=document.createElement('button');b.className='site';b.innerHTML='<b>★'+(n+1)+'</b> · score '+Math.round(score[c]*100)+' · slope '+slope[c].toFixed(1)+'° · sun '+Math.round(sun[c]*100)+'%';b.onclick=function(){sel=c;draw()};el.appendChild(b)});
+if(sel===null&&tops.length)sel=tops[0];draw()}
+function draw(){var d=ox.createImageData(N,N),leg=VI,lt='low → high';
+for(i=0;i<N*N;i++){var col,t;
+if(cur==='score'){col=valid[i]?lerp(RG,score[i]):[40,24,30];leg=RG;lt='unsafe/low → high score (dark = fails hazard gate)'}
+else if(cur==='valid'){col=valid[i]?[50,170,100]:[170,50,50];leg=[[170,50,50],[170,50,50],[50,170,100]];lt='red = hazardous, green = landable ellipse'}
+else if(cur==='slope')col=lerp(VI,slope[i]/20);
+else if(cur==='rough')col=lerp(VI,rough[i]/RMAX);
+else if(cur==='sun')col=lerp(VI,sun[i]);
+else if(cur==='comm')col=lerp(VI,comm[i]);
+else col=lerp(VI,ice[i]);
+var s=.55+.6*shade[i];d.data[i*4]=Math.min(255,col[0]*s);d.data[i*4+1]=Math.min(255,col[1]*s);d.data[i*4+2]=Math.min(255,col[2]*s);d.data[i*4+3]=255}
+ox.putImageData(d,0,0);cx.imageSmoothingEnabled=false;cx.drawImage(off,0,0,512,512);
+var z=512/N;tops.forEach(function(c,n){var x=(c%N+.5)*z,y=((c/N|0)+.5)*z;cx.fillStyle='#fff';cx.strokeStyle='#000';cx.lineWidth=2;cx.beginPath();cx.arc(x,y,9,0,7);cx.stroke();cx.fill();cx.fillStyle='#000';cx.font='bold 12px system-ui';cx.textAlign='center';cx.fillText(n+1,x,y+4)});
+if(sel!==null){var x=(sel%N+.5)*z,y=((sel/N|0)+.5)*z,e=P().er*z+z/2;cx.strokeStyle='#00e5ff';cx.lineWidth=2;cx.strokeRect(x-e,y-e,2*e,2*e)}
+layers.forEach(function(l){document.getElementById('t_'+l[0]).className=l[0]===cur?'on':''});
+var g='linear-gradient(90deg,'+leg.map(function(c){return'rgb('+c+')'}).join(',')+')';document.getElementById('leg').style.background=g;document.getElementById('legt').textContent=lt;info()}
+function info(){var el=document.getElementById('info');if(sel===null){return}var c=sel,p=P(),ok=valid[c];
+var why=[];why.push('slope '+slope[c].toFixed(1)+'° vs '+p.ml+'° limit');
+if(rough[c]>RL)why.push('surface too rough');
+if(!ok&&slope[c]<=p.ml&&rough[c]<=RL)why.push('hazard inside the landing ellipse');
+var best=[['sunlight',sun[c]],['comms',comm[c]],['ice access',ice[c]]].sort(function(a,b){return b[1]-a[1]})[0];
+el.innerHTML='<div class="k"><div>Score<b>'+(ok?Math.round(score[c]*100):'—')+'</b></div><div>Slope<b>'+slope[c].toFixed(1)+'°</b></div><div>Sunlight<b>'+Math.round(sun[c]*100)+'%</b></div><div>Earth comms<b>'+Math.round(comm[c]*100)+'%</b></div><div>Ice proximity<b>'+Math.round(ice[c]*100)+'%</b></div><div>Elevation<b>'+Math.round(H[c]-Math.min.apply(null,H))+' m</b></div></div>'
++'<div class="v">'+(ok?'✅ <b>Landable.</b> Strongest asset: '+best[0]+'. Margin: '+why[0]+'.':'⚠️ <b>Rejected.</b> '+why.join('; ')+'.')+'</div>'}
+cv.addEventListener('click',function(e){var b=cv.getBoundingClientRect();var x=Math.floor((e.clientX-b.left)/b.width*N),y=Math.floor((e.clientY-b.top)/b.height*N);sel=y*N+x;draw()});
+['lander','w1','w2','w3','w4'].forEach(function(id){document.getElementById(id).addEventListener('input',compute)});
+compute();
+})();
+</script>
+</body>
+</html>
